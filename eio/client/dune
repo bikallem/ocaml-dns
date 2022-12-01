@@ -18,7 +18,13 @@
   logs
   eio
   tls-eio
+<<<<<<< HEAD
   ca-certs))
+=======
+  sexplib
+  ptime
+  ptime.clock.os))
+>>>>>>> 5196c07 (dns-client(eio): use tls)
 
 (executable
  (name        ohost)
