@@ -30,7 +30,7 @@ let display_host_ips h_name style_renderer level =
 
   Eio_main.run @@ fun env ->
   Dns_client_eio.run env @@ fun stack ->
-  let t = Dns_client_eio.create ~timeout:1_000_000_000L stack in
+  let t = Dns_client_eio.create stack in
   let dn = Domain_name.(host_exn (of_string_exn h_name)) in
   let tasks = [ipv4 t dn; ipv6 t dn; mx t dn] in
   let results = Eio.Fiber.List.map (fun f -> f ()) tasks in
@@ -64,4 +64,6 @@ let cmd =
   let info = Cmd.info "ohost" ~version:"%%VERSION%%" ~doc ~man in
   Cmd.v info ohost_t
 
-let () = exit (Cmd.eval cmd)
+let () =
+  Printexc.record_backtrace true;
+  exit (Cmd.eval cmd)

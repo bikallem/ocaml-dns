@@ -14,9 +14,11 @@
   mirage-crypto-rng
   mirage-crypto-rng-eio
   domain-name
-  ca-certs
+  fmt
+  logs
   eio
-  tls-eio))
+  tls-eio
+  ca-certs))
 
 (executable
  (name        ohost)

@@ -7,7 +7,7 @@ type 'a env = <
   ..
 > as 'a
 
-type io_addr = [`Plaintext of Ipaddr.t * int | `Tls of Tls.Config.client * Ipaddr.t * int]
+type io_addr = [`Plaintext of Ipaddr.t * int | `Tls of Ipaddr.t * int]
 type stack = {
   fs          : Eio.Fs.dir Eio.Path.t;
   sw          : Eio.Switch.t;
@@ -65,35 +65,17 @@ module Transport : Dns_client.S
   let ( let* ) = Result.bind
   let ( let+ ) r f = Result.map f r
 
-  let authenticator =
-    let authenticator_ref = ref None in
-    fun () ->
-      match !authenticator_ref with
-      | Some x -> x
-      | None -> match Ca_certs.authenticator () with
-        | Ok a -> authenticator_ref := Some a ; a
-        | Error `Msg m -> invalid_arg ("failed to load trust anchors: " ^ m)
-
   let decode_resolv_conf data =
     let* ips = Dns_resolvconf.parse data in
-    let authenticator = authenticator () in
     match ips with
     | [] -> Error (`Msg "empty nameservers from resolv.conf")
     | ips ->
-      List.map
-        (function `Nameserver ip ->
-          let tls_config = Tls.Config.client ~authenticator ~ip () in
-          [`Plaintext (ip, 53); `Tls (tls_config, ip, 853)]
-        )
-        ips
+      List.map (function `Nameserver ip -> [`Plaintext (ip, 53); `Tls (ip, 853)]) ips
       |> List.flatten
       |> Result.ok
 
   let default_resolvers () =
-    let authenticator = authenticator () in
-    let peer_name = Dns_client.default_resolver_hostname in
-    let tls_config = Tls.Config.client ~authenticator ~peer_name () in
-    List.map (fun ip -> `Tls (tls_config, ip, 853)) Dns_client.default_resolvers
+    List.map (fun ip -> `Tls (ip, 853)) Dns_client.default_resolvers
 
   let rng = Mirage_crypto_rng.generate ?g:None
   let clock = Mtime_clock.elapsed_ns
@@ -151,12 +133,10 @@ module Transport : Dns_client.S
 
   let find_ns t (ip, port) =
     List.find
-      (function `Plaintext (ip', p)
-      | `Tls (_, ip', p) -> Ipaddr.compare ip ip' = 0 && p = port
-      )
+      (function `Plaintext (ip', p) | `Tls (ip', p) -> Ipaddr.compare ip ip' = 0 && p = port)
       (nameserver_ips t)
 
-  let rec he_handle_actions t he actions : #Eio.Flow.two_way option =
+  let rec he_handle_actions t he actions =
     let fiber_of_action = function
       | Happy_eyeballs.Connect (host, id, (ip, port)) ->
         fun () ->
@@ -173,12 +153,7 @@ module Transport : Dns_client.S
               let flow = Eio.Net.connect ~sw:t.stack.sw t.stack.net stream in
               Log.debug (fun m -> m "he_handle_actions: connected to nameserver (%a)"
                 Fmt.(pair ~sep:comma Ipaddr.pp int) (ip, port));
-              let flow =
-                match find_ns t (ip, port) with
-                | `Plaintext _ -> (flow :> Eio.Flow.two_way)
-                | `Tls (config, _,_) -> (Tls_eio.client_of_flow config flow :> Eio.Flow.two_way)
-              in
-              Some flow)
+              Some (ip, port, flow))
           with Eio.Time.Timeout ->
             Log.debug (fun m -> m "he_handle_actions: connection to nameserver (%a) timed out"
               Fmt.(pair ~sep:comma Ipaddr.pp int) (ip, port));
@@ -198,7 +173,16 @@ module Transport : Dns_client.S
     Eio.Fiber.any (List.map fiber_of_action actions)
 
   let to_ip_port =
-    List.map (function `Plaintext (ip, port) -> (ip, port) | `Tls (_, ip, port) -> (ip, port))
+    List.map (function `Plaintext (ip, port) -> (ip, port) | `Tls (ip, port) -> (ip, port))
+
+  let authenticator =
+    let authenticator_ref = ref None in
+    fun () ->
+      match !authenticator_ref with
+      | Some x -> x
+      | None -> match Ca_certs.authenticator () with
+        | Ok a -> authenticator_ref := Some a ; a
+        | Error `Msg m -> invalid_arg ("failed to load trust anchors: " ^ m)
 
   let rec connect t =
     Log.debug (fun m -> m "connect : establishing connection to nameservers");
@@ -215,7 +199,15 @@ module Transport : Dns_client.S
       let he = Happy_eyeballs.create (clock ()) in
       let he, actions = Happy_eyeballs.connect_ip he (clock ()) ~id:1 ns in
       begin match he_handle_actions t he actions with
-      | Some conn ->
+      | Some (ip, port, conn) ->
+        let conn =
+          match find_ns t (ip, port) with
+          | `Plaintext _ -> (conn :> Eio.Flow.two_way)
+          | `Tls (_,_) ->
+            let authenticator = authenticator () in
+            let config = Tls.Config.(client ~authenticator ()) in
+            (Tls_eio.client_of_flow config conn :> Eio.Flow.two_way)
+        in
         let context =
           { t = t
           ; requests = IM.empty
@@ -303,7 +295,7 @@ module Transport : Dns_client.S
       )
     with
     | Eio.Time.Timeout -> Error (`Msg "DNS request timeout")
-    | exn -> Error (`Msg (Printexc.to_string_default exn))
+(*     | exn -> Error (`Msg (Printexc.to_string exn)) *)
 
   let close _ = ()
   let bind a f = f a
