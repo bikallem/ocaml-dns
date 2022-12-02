@@ -1,20 +1,19 @@
 open Cmdliner
-
-let (let+) r f = Result.map f r
+open Lwt.Infix
 
 (* Retrieve IPv4 address for domain name [dn] if any. *)
-let ipv4 t dn () =
-  match Dns_client_eio.gethostbyname t dn with
+let ipv4 t dn =
+  Dns_client_lwt.gethostbyname t dn >|= function
   | Ok addr -> Ok ("IPv4", Fmt.str "%a has IPv4 address %a\n" Domain_name.pp dn Ipaddr.V4.pp addr)
   | Error (`Msg m) -> Error ("IPv4", m)
 
-let ipv6 t dn () =
-  match Dns_client_eio.gethostbyname6 t dn with
+let ipv6 t dn =
+  Dns_client_lwt.gethostbyname6 t dn >|= function
   | Ok addr -> Ok ("IPv6", Fmt.str "%a has IPv6 address %a\n" Domain_name.pp dn Ipaddr.V6.pp addr)
   | Error (`Msg m) -> Error ("IPv6", m)
 
-let mx t dn () =
-  match Dns_client_eio.getaddrinfo t Mx dn with
+let mx t dn =
+  Dns_client_lwt.getaddrinfo t Mx dn >|= function
   | Ok (_ttl, resp) -> Ok
   ("MX", Fmt.str "%a\n"
     (Fmt.list (fun ppf -> Fmt.pf ppf "%a mail is handled by %a" Domain_name.pp dn Dns.Mx.pp))
@@ -49,19 +48,20 @@ let display_host_ips h_name style_renderer level =
   Logs.set_level level;
   Logs.set_reporter (reporter Format.std_formatter);
 
-  Eio_main.run @@ fun env ->
-  Dns_client_eio.run env @@ fun stack ->
-  let t = Dns_client_eio.create stack in
-  let dn = Domain_name.(host_exn (of_string_exn h_name)) in
-  let tasks = [ipv4 t dn; ipv6 t dn; mx t dn] in
-  let results = Eio.Fiber.List.map (fun f -> f ()) tasks in
+  Lwt_main.run 
+  (
+    let t = Dns_client_lwt.create () in
+    let dn = Domain_name.(host_exn (of_string_exn h_name)) in
+    let tasks = [ipv4 t dn; ipv6 t dn; mx t dn] in
 
-  List.iter
-    (function
-    | Ok (nm, s) -> Fmt.pr "[Ok] %4s: %s\n" nm s
-    | Error (nm, msg) -> Fmt.pr "[Err] %4s: %s\n" nm msg
-    )
-    results
+    Lwt_list.iter_p
+      (fun r ->  
+        r >|= function
+        | Ok (nm, s) -> Fmt.pr "[Ok] %4s: %s\n" nm s
+        | Error (nm, msg) -> Fmt.pr "[Err] %4s: %s\n" nm msg
+      )
+      tasks
+  )
 
 let cmd =
   let host_arg =

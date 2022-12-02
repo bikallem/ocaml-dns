@@ -163,7 +163,7 @@ module Transport : Dns_client.S
           end
       | Happy_eyeballs.Connect_failed (_host, id) ->
         fun () ->
-          Logs.debug (fun m -> m "he_handle_actions: connection failed %d" id);
+          Log.debug (fun m -> m "he_handle_actions: connection failed %d" id);
           None
       | a ->
         fun () ->
@@ -226,25 +226,25 @@ module Transport : Dns_client.S
             Fmt.(list ~sep:(any ", ") (pair ~sep:(any ":") Ipaddr.pp int))
             (to_ip_port @@ nameserver_ips t)
         in
-        Logs.debug (fun m -> m "connect : %s" error_msg);
+        Log.debug (fun m -> m "connect : %s" error_msg);
         Error (`Msg error_msg)
       end
 
   let recv_data t flow id : unit =
     let buf = Cstruct.create 512 in
-    Logs.debug (fun m -> m "recv_data (%d): t.buf.len %d" id (Cstruct.length t.buf));
+    Log.debug (fun m -> m "recv_data (%X): t.buf.len %d" id (Cstruct.length t.buf));
     let got = Eio.Flow.single_read flow buf in
-    Logs.debug (fun m -> m "recv_data (%d): got %d" id got);
+    Log.debug (fun m -> m "recv_data (%X): got %d" id got);
     let buf = Cstruct.sub buf 0 got in
     t.buf <- if Cstruct.length t.buf = 0 then buf else Cstruct.append t.buf buf;
-    Logs.debug (fun m -> m "recv_data (%d): t.buf.len %d" id (Cstruct.length t.buf))
+    Log.debug (fun m -> m "recv_data (%X): t.buf.len %d" id (Cstruct.length t.buf))
 
   let rec recv_packet t ns_connection request_id =
-    Logs.debug (fun m -> m "recv_packet (%d): recv_packet" request_id);
+    Log.debug (fun m -> m "recv_packet (%X)" request_id);
     let buf_len = Cstruct.length t.buf in
     if buf_len > 2 then (
       let packet_len = Cstruct.BE.get_uint16 t.buf 0 in
-      Logs.debug (fun m -> m "recv_packet (%d): packet_len %d" request_id (Cstruct.length t.buf));
+      Log.debug (fun m -> m "recv_packet (%X): packet_len %d" request_id (Cstruct.length t.buf));
       if buf_len - 2 >= packet_len then
         let packet, rest =
           if buf_len - 2 = packet_len
@@ -253,7 +253,7 @@ module Transport : Dns_client.S
         in
         t.buf <- rest;
         let response_id = Cstruct.BE.get_uint16 packet 2 in
-        Logs.debug (fun m -> m "recv_packet (%d): response %d" request_id response_id);
+        Log.debug (fun m -> m "recv_packet (%X): got response %X" request_id response_id);
         if response_id = request_id
         then packet
         else begin
@@ -282,7 +282,7 @@ module Transport : Dns_client.S
       let request_id = Cstruct.BE.get_uint16 packet 2 in
       Eio.Time.Timeout.run_exn ctx.t.timeout (fun () ->
         Eio.Flow.write ctx.ns_connection [packet];
-        Logs.debug (fun m -> m "send_recv (%d): request" request_id);
+        Log.debug (fun m -> m "send_recv (%X): wrote request" request_id);
         let response_p, response_r = Eio.Promise.create () in
         ctx.requests <- IM.add request_id response_r ctx.requests;
         let response =
@@ -290,7 +290,7 @@ module Transport : Dns_client.S
             (fun () -> recv_packet ctx ctx.ns_connection request_id)
             (fun () -> Eio.Promise.await response_p)
         in
-        Logs.debug (fun m -> m "send_recv (%d): got response" request_id);
+        Log.debug (fun m -> m "send_recv (%X): got response" request_id);
         Ok response
       )
     with

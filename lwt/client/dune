@@ -4,3 +4,12 @@
   (public_name dns-client.lwt)
   (libraries   lwt lwt.unix dns dns-client dns-client.resolvconf mtime.clock.os mirage-crypto-rng.lwt ipaddr.unix happy-eyeballs tls.lwt ca-certs)
   (wrapped     false))
+
+
+(executable
+ (name        ohost)
+ (modules     ohost)
+ (public_name dns-client-lwt-ohost)
+ (package     dns-client)
+ (libraries   dns-client.lwt mtime.clock.os lwt domain-name fmt
+              cmdliner fmt.cli logs.cli logs.fmt fmt.tty))
