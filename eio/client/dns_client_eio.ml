@@ -175,15 +175,6 @@ module Transport : Dns_client.S
   let to_ip_port =
     List.map (function `Plaintext (ip, port) -> (ip, port) | `Tls (ip, port) -> (ip, port))
 
-  let authenticator =
-    let authenticator_ref = ref None in
-    fun () ->
-      match !authenticator_ref with
-      | Some x -> x
-      | None -> match Ca_certs.authenticator () with
-        | Ok a -> authenticator_ref := Some a ; a
-        | Error `Msg m -> invalid_arg ("failed to load trust anchors: " ^ m)
-
   let rec connect t =
     Log.debug (fun m -> m "connect : establishing connection to nameservers");
     match t.ctx, t.ns_connection_condition with
@@ -204,29 +195,9 @@ module Transport : Dns_client.S
           match find_ns t (ip, port) with
           | `Plaintext _ -> (conn :> Eio.Flow.two_way)
           | `Tls (_,_) ->
-<<<<<<< HEAD
-            let authenticator = authenticator () in
-            let config = Tls.Config.(client ~authenticator ()) in
-=======
-            let psk_epoch = ref None in
-            let ticket_cache =
-              { Tls.Config.lookup = (fun _ -> None)
-              ; ticket_granted = (fun psk epoch ->
-                  Logs.info (fun m -> m "ticket granted %a %a"
-                    Sexplib.Sexp.pp_hum (Tls.Core.sexp_of_psk13 psk)
-                    Sexplib.Sexp.pp_hum (Tls.Core.sexp_of_epoch_data epoch));
-                  psk_epoch := (Some (psk, epoch)))
-              ; lifetime = 0l
-              ; timestamp = Ptime_clock.now
-              }
-            in
-            let authenticator = authenticator () in
-            let config =
-              Tls.Config.(client ~version:(`TLS_1_0, `TLS_1_3) ?cached_ticket:!psk_epoch
-                ~ticket_cache ~authenticator ~ciphers:Ciphers.supported ())
-            in
->>>>>>> 5196c07 (dns-client(eio): use tls)
-            (Tls_eio.client_of_flow config conn :> Eio.Flow.two_way)
+            let ctx = Ssl.(create_context TLSv1_3 Client_context) in
+            let ssl_ctx = Eio_ssl.Context.create ~ctx conn in
+            (Eio_ssl.connect ssl_ctx :> Eio.Flow.two_way)
         in
         let context =
           { t = t
@@ -315,11 +286,7 @@ module Transport : Dns_client.S
       )
     with
     | Eio.Time.Timeout -> Error (`Msg "DNS request timeout")
-<<<<<<< HEAD
 (*     | exn -> Error (`Msg (Printexc.to_string exn)) *)
-=======
-    | exn -> Error (`Msg (Printexc.to_string exn))
->>>>>>> 5196c07 (dns-client(eio): use tls)
 
   let close _ = ()
   let bind a f = f a
