@@ -35,3 +35,5 @@ val run :
         | OK addr -> Fmt.pr "%a has IPv4 address %a\n" Domain_name.pp Ipaddr.V4.pp addr
         | Error (`Msg e) -> Fmt.pr "Error %s" e
     ]} *)
+
+val src : Logs.src

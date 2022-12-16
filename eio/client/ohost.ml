@@ -44,9 +44,10 @@ let reporter ppf =
   in
   { Logs.report = report }
 
-let display_host_ips h_name style_renderer level =
-  Fmt_tty.setup_std_outputs ?style_renderer () ;
-  Logs.set_level level;
+let display_host_ips h_name=
+  Logs.(Src.set_level Eio_linux.src (Some Debug));
+  Logs.(Src.set_level Tls.Tracing.src (Some Info));
+  Logs.(Src.set_level Dns_client_eio.src (Some Debug));
   Logs.set_reporter (reporter Format.std_formatter);
 
   Eio_main.run @@ fun env ->
@@ -68,14 +69,7 @@ let cmd =
     let doc = "host/domain name, e.g. www.tarides.com" in
     Arg.(required & pos 0 (some' string) None & info [] ~docv:"HOST" ~doc)
   in
-  let ohost_t =
-    Term.(const
-            display_host_ips
-          $ host_arg
-          $ Fmt_cli.style_renderer ()
-          $ Logs_cli.level ()
-         )
-  in
+  let ohost_t = Term.(const display_host_ips $ host_arg) in
   let doc = "Displays IPv4, IPv6 and Mail(MX) ip addresses for given host" in
   let man =
     [ `S Manpage.s_bugs
