@@ -190,3 +190,5 @@ module Pure : sig
       an incomplete packet. *)
 
 end
+
+val src : Logs.src
